@@ -859,11 +859,22 @@
                 value: 0n,
             });
 
-            // Wait for finalization
-            await client.waitForTransactionReceipt({
-                hash: txHash,
-                status: 'FINALIZED',
-            });
+            try {
+                // Wait for finalization with increased retries for the AI consensus testnet
+                await client.waitForTransactionReceipt({
+                    hash: txHash,
+                    status: 'FINALIZED',
+                    retries: 120,          // Try 120 times
+                    pollingInterval: 2000, // Every 2 seconds (up to 4 minutes)
+                });
+            } catch (err) {
+                // If it still times out but reached Accepted (5), it's likely just network lag.
+                if (err.message && err.message.includes('status: 5')) {
+                    console.warn("Transaction Accepted but taking long to Finalize. Loading anyway.");
+                } else {
+                    throw err;
+                }
+            }
             
             return txHash;
         }
