@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Notary — Verify Claims On-Chain</title>
+    <meta name="description" content="AI Notary: Verify real-world claims on-chain using AI validator consensus on GenLayer.">
+    <style>
+        /* ═══════════════════════════════════════════════════════
+           DESIGN TOKENS — Discord-inspired deep indigo system
+           ═══════════════════════════════════════════════════════ */
+        :root {
+            /* Surfaces */
+            --canvas: #0a0d3a;
+            --surface-indigo: #1e2353;
+            --surface-onyx: #23272a;
+            --surface-black: #000000;
+
+            /* Brand & Accent */
+            --primary: #5865f2;
+            --green: #35ed7e;
+            --magenta: #ec48bd;
+            --link: #00b0f4;
+
+            /* Text */
+            --ink: #ffffff;
+            --ink-dark: #000000;
+            --muted: #8e919a;
+            --hairline: rgba(255,255,255,0.08);
+
+            /* Verdict colours */
+            --verdict-supported: #35ed7e;
+            --verdict-not-supported: #ed4545;
+            --verdict-inconclusive: #8e919a;
+
+            /* Radii */
+            --r-sm: 12px;
+            --r-md: 14px;
+            --r-lg: 16px;
+            --r-xl: 40px;
+
+            /* Spacing */
+            --s-xs: 8px;
+            --s-sm: 12px;
+            --s-md: 16px;
+            --s-lg: 20px;
+            --s-xl: 24px;
+            --s-xxl: 32px;
+            --s-section: 40px;
+
+            /* Font stack */
+            --font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        /* ═══════════════════════════════════════════════════════
+           RESET & BASE
+           ═══════════════════════════════════════════════════════ */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html { scroll-behavior: smooth; }
+
+        body {
+            font-family: var(--font);
+            background: var(--canvas);
+            color: var(--ink);
+            min-height: 100vh;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* Animated gradient mesh background */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background:
+                radial-gradient(ellipse 80% 60% at 20% 10%, rgba(88,101,242,0.25) 0%, transparent 60%),
+                radial-gradient(ellipse 60% 50% at 80% 80%, rgba(236,72,189,0.2) 0%, transparent 55%),
+                radial-gradient(ellipse 70% 40% at 50% 50%, rgba(88,101,242,0.1) 0%, transparent 50%);
+            z-index: -1;
+            animation: meshDrift 12s ease-in-out infinite alternate;
+        }
+
+        @keyframes meshDrift {
+            0%   { transform: scale(1) translate(0, 0); }
+            50%  { transform: scale(1.05) translate(-2%, 3%); }
+            100% { transform: scale(1) translate(2%, -1%); }
+        }
+
+        /* ═══════════════════════════════════════════════════════
+           LAYOUT
+           ═══════════════════════════════════════════════════════ */
+        .container {
+            max-width: 720px;
+            margin: 0 auto;
+            padding: var(--s-xl);
+        }
+
+        /* ═══════════════════════════════════════════════════════
+           HEADER
+           ═══════════════════════════════════════════════════════ */
+        .header {
+            text-align: center;
+            padding: 60px 0 var(--s-section);
+        }
+
+        .header__logo {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 72px;
+            height: 72px;
+            border-radius: var(--r-xl);
+            background: linear-gradient(135deg, var(--primary), var(--magenta));
+            margin-bottom: var(--s-lg);
+            font-size: 36px;
+            box-shadow: 0 8px 32px rgba(88,101,242,0.3);
+            animation: logoFloat 4s ease-in-out infinite;
+        }
+
+        @keyframes logoFloat {
+            0%, 100% { transform: translateY(0); }
+            50%      { transform: translateY(-6px); }
+        }
+
+        .header h1 {
+            font-size: clamp(36px, 6vw, 56px);
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            line-height: 1.05;
+            text-transform: uppercase;
+            background: linear-gradient(135deg, var(--ink) 40%, var(--primary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header__subtitle {
+            color: var(--muted);
+            font-size: 18px;
+            font-weight: 500;
+            margin-top: var(--s-sm);
+            line-height: 1.4;
+        }
+
+        .header__chain-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: var(--s-md);
+            padding: 6px 16px;
+            border-radius: var(--r-lg);
+            background: var(--surface-indigo);
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--magenta);
+            border: 1px solid rgba(236,72,189,0.2);
+        }
+
+        .header__chain-badge .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--green);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50%      { opacity: 0.5; transform: scale(0.8); }
+        }
+
+        /* ═══════════════════════════════════════════════════════
+           ALERT BANNER
+           ═══════════════════════════════════════════════════════ */
+        .alert {
+            padding: var(--s-md) var(--s-lg);
+            border-radius: var(--r-sm);
+            margin-bottom: var(--s-xl);
+            font-size: 14px;
+            font-weight: 500;
+            display: none;
+            align-items: center;
+            gap: var(--s-sm);
+            animation: slideDown 0.3s ease-out;
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-8px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .alert--error {
+            background: rgba(237,69,69,0.12);
+            border: 1px solid rgba(237,69,69,0.3);
+            color: #ff6b6b;
+        }
+
+        .alert--info {
+            background: rgba(88,101,242,0.12);
+            border: 1px solid rgba(88,101,242,0.3);
+            color: var(--link);
+        }
+
+        .alert.visible { display: flex; }
+
+        /* ═══════════════════════════════════════════════════════
+           FORM CARD
+           ═══════════════════════════════════════════════════════ */
+        .form-card {
+            background: var(--surface-indigo);
+            border-radius: var(--r-xl);
+            padding: var(--s-xxl);
+            border: 1px solid var(--hairline);
+            margin-bottom: var(--s-xxl);
+            transition: border-color 0.3s ease;
+        }
+
+        .form-card:focus-within {
+            border-color: rgba(88,101,242,0.4);
+        }
+
+        .form-card__title {
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: var(--s-xl);
+            display: flex;
+            align-items: center;
+            gap: var(--s-sm);
+        }
+
+        .form-card__title span {
+            font-size: 20px;
+        }
+
+        .field {
+            margin-bottom: var(--s-lg);
+        }
+
+        .field label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--muted);
+            margin-bottom: var(--s-xs);
+        }
+
+        .field input,
+        .field textarea {
+            width: 100%;
+            background: rgba(0,0,0,0.25);
+            border: 1px solid var(--hairline);
+            border-radius: var(--r-sm);
+            padding: var(--s-sm) var(--s-md);
+            color: var(--ink);
+            font-family: var(--font);
+            font-size: 16px;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+            outline: none;
+        }
+
+        .field input::placeholder,
+        .field textarea::placeholder {
+            color: rgba(255,255,255,0.25);
+        }
+
+        .field input:focus,
+        .field textarea:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(88,101,242,0.15);
+        }
+
+        .field textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .btn-primary {
+            width: 100%;
+            padding: var(--s-md) var(--s-xl);
+            background: var(--primary);
+            color: var(--ink);
+            border: none;
+            border-radius: var(--r-sm);
+            font-family: var(--font);
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: #4752c4;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(88,101,242,0.35);
+        }
+
+        .btn-primary:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-primary .spinner {
+            display: none;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            margin-right: var(--s-xs);
+        }
+
+        .btn-primary.loading .spinner { display: inline-block; }
+        .btn-primary.loading .btn-text { display: none; }
+        .btn-primary.loading .btn-loading-text { display: inline; }
+        .btn-primary .btn-loading-text { display: none; }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* ═══════════════════════════════════════════════════════
+           RESULT CARD (latest attestation)
+           ═══════════════════════════════════════════════════════ */
+        .result-section {
+            display: none;
+            margin-bottom: var(--s-xxl);
+            animation: slideUp 0.4s ease-out;
+        }
+
+        .result-section.visible { display: block; }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(16px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .result-card {
+            background: linear-gradient(135deg, rgba(30,35,83,0.9), rgba(10,13,58,0.95));
+            border-radius: var(--r-xl);
+            padding: var(--s-xxl);
+            border: 1px solid var(--hairline);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .result-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+        }
+
+        .result-card.verdict-SUPPORTED::before    { background: linear-gradient(90deg, var(--verdict-supported), transparent); }
+        .result-card.verdict-NOT_SUPPORTED::before { background: linear-gradient(90deg, var(--verdict-not-supported), transparent); }
+        .result-card.verdict-INCONCLUSIVE::before  { background: linear-gradient(90deg, var(--verdict-inconclusive), transparent); }
+
+        .result-card__header {
+            display: flex;
+            align-items: center;
+            gap: var(--s-md);
+            margin-bottom: var(--s-lg);
+            flex-wrap: wrap;
+        }
+
+        .result-card__label {
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--muted);
+        }
+
+        .verdict-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 20px;
+            border-radius: var(--r-lg);
+            font-size: 16px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .verdict-badge--SUPPORTED {
+            background: rgba(53,237,126,0.15);
+            color: var(--verdict-supported);
+            border: 1px solid rgba(53,237,126,0.25);
+        }
+
+        .verdict-badge--NOT_SUPPORTED {
+            background: rgba(237,69,69,0.15);
+            color: var(--verdict-not-supported);
+            border: 1px solid rgba(237,69,69,0.25);
+        }
+
+        .verdict-badge--INCONCLUSIVE {
+            background: rgba(142,145,154,0.15);
+            color: var(--verdict-inconclusive);
+            border: 1px solid rgba(142,145,154,0.25);
+        }
+
+        .confidence-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 12px;
+            border-radius: var(--r-lg);
+            font-size: 12px;
+            font-weight: 600;
+            background: var(--surface-indigo);
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .result-card__evidence {
+            background: rgba(0,0,0,0.2);
+            border-radius: var(--r-sm);
+            padding: var(--s-md);
+            margin: var(--s-lg) 0;
+            font-size: 15px;
+            line-height: 1.6;
+            color: rgba(255,255,255,0.85);
+            border-left: 3px solid var(--primary);
+        }
+
+        .result-card__meta {
+            display: flex;
+            gap: var(--s-xl);
+            flex-wrap: wrap;
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .result-card__meta-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* ═══════════════════════════════════════════════════════
+           HISTORY SECTION
+           ═══════════════════════════════════════════════════════ */
+        .history-section {
+            margin-bottom: var(--s-section);
+        }
+
+        .history-section__title {
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: var(--s-lg);
+            display: flex;
+            align-items: center;
+            gap: var(--s-sm);
+        }
+
+        .history-section__title .count-badge {
+            background: var(--primary);
+            color: white;
+            font-size: 13px;
+            font-weight: 700;
+            padding: 2px 10px;
+            border-radius: 50px;
+            min-width: 28px;
+            text-align: center;
+        }
+
+        .history-list {
+            display: flex;
+            flex-direction: column;
+            gap: var(--s-md);
+            max-height: 600px;
+            overflow-y: auto;
+            padding-right: var(--s-xs);
+        }
+
+        .history-list::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .history-list::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .history-list::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.1);
+            border-radius: 3px;
+        }
+
+        .history-card {
+            background: var(--surface-indigo);
+            border-radius: var(--r-lg);
+            padding: var(--s-lg);
+            border: 1px solid var(--hairline);
+            transition: border-color 0.2s ease, transform 0.2s ease;
+        }
+
+        .history-card:hover {
+            border-color: rgba(88,101,242,0.3);
+            transform: translateY(-2px);
+        }
+
+        .history-card__top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: var(--s-sm);
+            margin-bottom: var(--s-sm);
+            flex-wrap: wrap;
+        }
+
+        .history-card__claim {
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: var(--s-xs);
+            line-height: 1.4;
+        }
+
+        .history-card__url {
+            font-size: 13px;
+            color: var(--link);
+            text-decoration: none;
+            word-break: break-all;
+            margin-bottom: var(--s-sm);
+            display: block;
+        }
+
+        .history-card__url:hover {
+            text-decoration: underline;
+        }
+
+        .history-card__evidence {
+            font-size: 14px;
+            color: rgba(255,255,255,0.7);
+            line-height: 1.5;
+            margin-bottom: var(--s-sm);
+            padding-left: var(--s-sm);
+            border-left: 2px solid rgba(88,101,242,0.3);
+        }
+
+        .history-card__meta {
+            display: flex;
+            gap: var(--s-md);
+            flex-wrap: wrap;
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .history-empty {
+            text-align: center;
+            padding: var(--s-section) var(--s-xl);
+            color: var(--muted);
+            font-size: 15px;
+        }
+
+        .history-empty__icon {
+            font-size: 48px;
+            margin-bottom: var(--s-md);
+            opacity: 0.5;
+        }
+
+        /* ═══════════════════════════════════════════════════════
+           FOOTER
+           ═══════════════════════════════════════════════════════ */
+        .footer {
+            text-align: center;
+            padding: var(--s-xxl) 0;
+            color: var(--muted);
+            font-size: 13px;
+            border-top: 1px solid var(--hairline);
+        }
+
+        .footer a {
+            color: var(--link);
+            text-decoration: none;
+        }
+
+        .footer a:hover { text-decoration: underline; }
+
+        /* ═══════════════════════════════════════════════════════
+           RESPONSIVE
+           ═══════════════════════════════════════════════════════ */
+        @media (max-width: 600px) {
+            .container { padding: var(--s-md); }
+            .form-card { padding: var(--s-lg); border-radius: var(--r-lg); }
+            .result-card { padding: var(--s-lg); border-radius: var(--r-lg); }
+            .header { padding: 40px 0 var(--s-xl); }
+            .result-card__meta { flex-direction: column; gap: var(--s-xs); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- ═══ HEADER ═══ -->
+        <header class="header" id="header">
+            <div class="header__logo">🔏</div>
+            <h1>AI Notary</h1>
+            <p class="header__subtitle">Verify real-world claims on-chain using AI validator consensus</p>
+            <div class="header__chain-badge">
+                <span class="dot"></span>
+                GenLayer Testnet
+            </div>
+        </header>
+
+        <!-- ═══ ALERTS ═══ -->
+        <div id="alert-contract" class="alert alert--error">
+            ⚠️ Contract address not configured. Set CONTRACT_ADDRESS in the script.
+        </div>
+        <div id="alert-contract" class="alert alert--error">
+            ⚠️ Contract address not configured. Set CONTRACT_ADDRESS in the script.
+        </div>
+        <div id="alert-error" class="alert alert--error"></div>
+        <div id="alert-info" class="alert alert--info"></div>
+
+        <!-- ═══ NOTARIZE FORM ═══ -->
+        <section class="form-card" id="form-section">
+            <h2 class="form-card__title"><span>📋</span> Submit a Claim</h2>
+            <div class="field">
+                <label for="input-url">Web Page URL</label>
+                <input type="url" id="input-url" placeholder="https://example.com/article" autocomplete="off" />
+            </div>
+            <div class="field">
+                <label for="input-claim">Claim to Verify</label>
+                <textarea id="input-claim" placeholder="e.g. This article states that the company raised $10M in Series A funding"></textarea>
+            </div>
+            <button class="btn-primary" id="btn-notarize" type="button">
+                <span class="spinner"></span>
+                <span class="btn-text">Notarize</span>
+                <span class="btn-loading-text">Processing on-chain…</span>
+            </button>
+        </section>
+
+        <!-- ═══ LATEST RESULT ═══ -->
+        <section class="result-section" id="result-section">
+            <div class="result-card" id="result-card">
+                <div class="result-card__header">
+                    <span class="result-card__label">Latest Attestation</span>
+                    <span class="verdict-badge" id="result-verdict"></span>
+                    <span class="confidence-tag" id="result-confidence"></span>
+                </div>
+                <div class="result-card__evidence" id="result-evidence"></div>
+                <div class="result-card__meta">
+                    <span class="result-card__meta-item" id="result-submitter">👤 —</span>
+                    <span class="result-card__meta-item" id="result-timestamp">🕐 —</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══ HISTORY ═══ -->
+        <section class="history-section" id="history-section">
+            <h2 class="history-section__title">
+                📜 Attestation History
+                <span class="count-badge" id="history-count">0</span>
+            </h2>
+            <div class="history-list" id="history-list">
+                <div class="history-empty" id="history-empty">
+                    <div class="history-empty__icon">📭</div>
+                    No attestations yet. Submit your first claim above.
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══ FOOTER ═══ -->
+        <footer class="footer">
+            Built on <a href="https://genlayer.com" target="_blank" rel="noopener">GenLayer</a> — The Adjudication Layer for the Agentic Economy
+        </footer>
+    </div>
+
+    <!-- GenLayer JS SDK loaded via ES Modules -->
+    <script type="module">
+        import { createClient, createAccount } from "https://esm.sh/genlayer-js@1.1.8";
+        import { studionet } from "https://esm.sh/genlayer-js@1.1.8/chains";
+
+        // ═══════════════════════════════════════════════════════
+        // CONFIGURATION
+        // ═══════════════════════════════════════════════════════
+        const CONTRACT_ADDRESS = "0xe886e3BD17831cF4EABaE977DF5a016D46B4B565";
+
+        // ═══════════════════════════════════════════════════════
+        // DOM REFS
+        // ═══════════════════════════════════════════════════════
+        const $ = (sel) => document.querySelector(sel);
+        const inputUrl     = $('#input-url');
+        const inputClaim   = $('#input-claim');
+        const btnNotarize  = $('#btn-notarize');
+        const alertContract = $('#alert-contract');
+        const alertError   = $('#alert-error');
+        const alertInfo    = $('#alert-info');
+        const resultSection = $('#result-section');
+        const resultCard   = $('#result-card');
+        const resultVerdict = $('#result-verdict');
+        const resultConfidence = $('#result-confidence');
+        const resultEvidence   = $('#result-evidence');
+        const resultSubmitter  = $('#result-submitter');
+        const resultTimestamp  = $('#result-timestamp');
+        const historyList  = $('#history-list');
+        const historyCount = $('#history-count');
+        const historyEmpty = $('#history-empty');
+
+        // ═══════════════════════════════════════════════════════
+        // STATE
+        // ═══════════════════════════════════════════════════════
+        let isProcessing = false;
+
+        // ═══════════════════════════════════════════════════════
+        // HELPERS
+        // ═══════════════════════════════════════════════════════
+        function truncateAddress(addr) {
+            if (!addr || addr.length < 10) return addr || '—';
+            return addr.slice(0, 6) + '…' + addr.slice(-4);
+        }
+
+        function formatTimestamp(ts) {
+            if (!ts) return '—';
+            try {
+                const date = typeof ts === 'number'
+                    ? new Date(ts > 1e12 ? ts : ts * 1000)
+                    : new Date(ts);
+                if (isNaN(date.getTime())) return String(ts);
+                return date.toLocaleString(undefined, {
+                    year: 'numeric', month: 'short', day: 'numeric',
+                    hour: '2-digit', minute: '2-digit'
+                });
+            } catch { return String(ts); }
+        }
+
+        function verdictClass(verdict) {
+            if (!verdict) return 'INCONCLUSIVE';
+            return verdict.replace(/\s+/g, '_').toUpperCase();
+        }
+
+        function showAlert(el, msg) {
+            if (!el) return;
+            el.textContent = msg;
+            el.classList.add('visible');
+        }
+
+        function hideAlert(el) {
+            if (!el) return;
+            el.classList.remove('visible');
+        }
+
+        function hideAllAlerts() {
+            [alertContract, alertError, alertInfo].forEach(hideAlert);
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        // ═══════════════════════════════════════════════════════
+        // RENDER FUNCTIONS
+        // ═══════════════════════════════════════════════════════
+        function renderLatestResult(att) {
+            if (!att || Object.keys(att).length === 0) {
+                resultSection.classList.remove('visible');
+                return;
+            }
+
+            const vc = verdictClass(att.verdict);
+            resultCard.className = 'result-card verdict-' + vc;
+
+            resultVerdict.className = 'verdict-badge verdict-badge--' + vc;
+            resultVerdict.textContent = att.verdict || 'INCONCLUSIVE';
+
+            resultConfidence.textContent = '🎯 ' + (att.confidence || 'low');
+            resultEvidence.textContent = att.evidence_summary || '—';
+            resultSubmitter.textContent = '👤 ' + truncateAddress(att.submitter);
+            resultTimestamp.textContent = '🕐 ' + formatTimestamp(att.timestamp);
+
+            resultSection.classList.add('visible');
+        }
+
+        function renderHistoryCard(att) {
+            const vc = verdictClass(att.verdict);
+            const card = document.createElement('div');
+            card.className = 'history-card';
+
+            card.innerHTML = `
+                <div class="history-card__top">
+                    <span class="verdict-badge verdict-badge--${vc}" style="font-size:13px; padding:4px 12px;">
+                        ${att.verdict || 'INCONCLUSIVE'}
+                    </span>
+                    <span class="confidence-tag">${att.confidence || 'low'}</span>
+                </div>
+                <div class="history-card__claim">${escapeHtml(att.claim || '—')}</div>
+                <a class="history-card__url" href="${escapeHtml(att.url || '#')}" target="_blank" rel="noopener">${escapeHtml(att.url || '—')}</a>
+                <div class="history-card__evidence">${escapeHtml(att.evidence_summary || '—')}</div>
+                <div class="history-card__meta">
+                    <span>👤 ${truncateAddress(att.submitter)}</span>
+                    <span>🕐 ${formatTimestamp(att.timestamp)}</span>
+                </div>
+            `;
+            return card;
+        }
+
+        function renderHistory(attestations) {
+            historyList.innerHTML = '';
+            if (!attestations || attestations.length === 0) {
+                historyList.innerHTML = `
+                    <div class="history-empty">
+                        <div class="history-empty__icon">📭</div>
+                        No attestations yet. Submit your first claim above.
+                    </div>`;
+                historyCount.textContent = '0';
+                return;
+            }
+
+            historyCount.textContent = String(attestations.length);
+            const sorted = [...attestations].reverse();
+            sorted.forEach(att => {
+                historyList.appendChild(renderHistoryCard(att));
+            });
+        }
+
+        // ═══════════════════════════════════════════════════════
+        // GENLAYER SDK SETUP
+        // ═══════════════════════════════════════════════════════
+
+        // Create a local virtual account to sign transactions
+        const account = createAccount();
+
+        // Initialize the GenLayer client connected to GenLayer Studio testnet
+        const client = createClient({
+            chain: studionet,
+            account: account,
+        });
+
+        async function readContract(functionName, args = []) {
+            return await client.readContract({
+                address: CONTRACT_ADDRESS,
+                functionName,
+                args,
+            });
+        }
+
+        async function writeContract(functionName, args = []) {
+            const txHash = await client.writeContract({
+                address: CONTRACT_ADDRESS,
+                functionName,
+                args,
+                value: 0n,
+            });
+
+            // Wait for finalization
+            await client.waitForTransactionReceipt({
+                hash: txHash,
+                status: 'FINALIZED',
+            });
+            
+            return txHash;
+        }
+
+        // ═══════════════════════════════════════════════════════
+        // ACTIONS
+        // ═══════════════════════════════════════════════════════
+
+        async function loadHistory() {
+            try {
+                const raw = await readContract('get_attestations');
+                const attestations = typeof raw === 'string' ? JSON.parse(raw) : (raw || []);
+                renderHistory(attestations);
+            } catch (err) {
+                console.warn('Could not load history:', err);
+            }
+        }
+
+        async function loadLatest() {
+            try {
+                const raw = await readContract('get_latest_attestation');
+                const latest = typeof raw === 'string' ? JSON.parse(raw) : (raw || {});
+                renderLatestResult(latest);
+            } catch (err) {
+                console.warn('Could not load latest attestation:', err);
+            }
+        }
+
+        async function handleNotarize() {
+            if (isProcessing) return;
+
+            hideAllAlerts();
+
+            const url = inputUrl.value.trim();
+            const claim = inputClaim.value.trim();
+
+            if (!url) {
+                showAlert(alertError, '⚠️ Please enter a URL to verify.');
+                inputUrl.focus();
+                return;
+            }
+
+            if (!claim) {
+                showAlert(alertError, '⚠️ Please enter a claim to verify against the page.');
+                inputClaim.focus();
+                return;
+            }
+
+            try {
+                new URL(url);
+            } catch {
+                showAlert(alertError, '⚠️ Please enter a valid URL (including https://).');
+                inputUrl.focus();
+                return;
+            }
+
+            isProcessing = true;
+            btnNotarize.disabled = true;
+            btnNotarize.classList.add('loading');
+
+            try {
+                await writeContract('notarize', [url, claim]);
+                showAlert(alertInfo, '✅ Attestation recorded on-chain!');
+                await loadLatest();
+                await loadHistory();
+                inputUrl.value = '';
+                inputClaim.value = '';
+            } catch (err) {
+                showAlert(alertError, '❌ Transaction failed: ' + (err.message || err));
+            } finally {
+                isProcessing = false;
+                btnNotarize.disabled = false;
+                btnNotarize.classList.remove('loading');
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════
+        // INIT
+        // ═══════════════════════════════════════════════════════
+        btnNotarize.addEventListener('click', handleNotarize);
+
+        inputUrl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') handleNotarize();
+        });
+
+        (async function boot() {
+            // Check contract address
+            if (!CONTRACT_ADDRESS || CONTRACT_ADDRESS === "PASTE_YOUR_CONTRACT_ADDRESS_HERE") {
+                showAlert(alertContract, '⚠️ Contract address not configured. Set CONTRACT_ADDRESS in the script.');
+                btnNotarize.disabled = true;
+                return;
+            }
+
+            // Client is already initialized at module scope
+            // Load existing data
+            await loadHistory();
+            await loadLatest();
+        })();
+    </script>
+</body>
+</html>
+
