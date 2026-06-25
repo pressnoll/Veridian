@@ -621,9 +621,6 @@
         <div id="alert-contract" class="alert alert--error">
             ⚠️ Contract address not configured. Set CONTRACT_ADDRESS in the script.
         </div>
-        <div id="alert-contract" class="alert alert--error">
-            ⚠️ Contract address not configured. Set CONTRACT_ADDRESS in the script.
-        </div>
         <div id="alert-error" class="alert alert--error"></div>
         <div id="alert-info" class="alert alert--info"></div>
 
@@ -689,7 +686,7 @@
         // ═══════════════════════════════════════════════════════
         // CONFIGURATION
         // ═══════════════════════════════════════════════════════
-        const CONTRACT_ADDRESS = "0xe886e3BD17831cF4EABaE977DF5a016D46B4B565";
+        const CONTRACT_ADDRESS = "0xe886e3BD17831cF4EABaE977DF5a016D46B4B565" // Update this after you redeploy!
 
         // ═══════════════════════════════════════════════════════
         // DOM REFS
@@ -864,8 +861,8 @@
                 await client.waitForTransactionReceipt({
                     hash: txHash,
                     status: 'FINALIZED',
-                    retries: 120,          // Try 120 times
-                    pollingInterval: 2000, // Every 2 seconds (up to 4 minutes)
+                    retries: 200,          // Try 200 times
+                    interval: 5000,        // Every 5 seconds (up to ~16 minutes)
                 });
             } catch (err) {
                 // If it still times out but reached Accepted (5), it's likely just network lag.

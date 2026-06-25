@@ -20,7 +20,10 @@ class AINotary(gl.Contract):
         # Define the non-deterministic block: fetch page + LLM reasoning
         def _analyze():
             # Fetch the web page content
-            page_content = gl.nondet.web.get_webpage(target_url, mode="text")
+            try:
+                page_content = gl.nondet.web.render(target_url, mode="text")
+            except Exception as e:
+                return json.dumps({"verdict": "INCONCLUSIVE", "confidence": "low", "evidence_summary": f"Could not fetch webpage: {str(e)}"})
 
             # Truncate to 3000 chars to avoid prompt overflow
             if len(page_content) > 3000:
@@ -51,11 +54,17 @@ class AINotary(gl.Contract):
             return result
 
         # Run through equivalence principle for validator consensus
-        raw_result = gl.eq_principle.strict_eq(_analyze)
+        # Using prompt_comparative so validators can reach agreement on
+        # subjective LLM output (strict_eq would fail since LLM outputs differ)
+        raw_result = gl.eq_principle.prompt_comparative(
+            _analyze,
+            principle="The JSON must contain verdict (SUPPORTED/NOT SUPPORTED/INCONCLUSIVE), confidence (high/medium/low), and evidence_summary fields. Verdicts and confidence levels should match."
+        )
 
         # Parse the LLM response safely
+        # exec_prompt with response_format="json" may return a dict or a string
         try:
-            parsed = json.loads(raw_result)
+            parsed = raw_result if isinstance(raw_result, dict) else json.loads(raw_result)
             verdict = parsed.get("verdict", "INCONCLUSIVE")
             confidence = parsed.get("confidence", "low")
             evidence_summary = parsed.get("evidence_summary", "No evidence summary provided.")
@@ -80,7 +89,7 @@ class AINotary(gl.Contract):
             "verdict": verdict,
             "confidence": confidence,
             "evidence_summary": evidence_summary,
-            "timestamp": str(gl.message_raw.datetime),
+            "timestamp": gl.message_raw["datetime"],
             "submitter": str(gl.message.sender_address),
         }
 
